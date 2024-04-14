@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"go-shellcode/utils"
+	"github.com/rurreac/go-shellcode/utils"
 	"os"
 )
 

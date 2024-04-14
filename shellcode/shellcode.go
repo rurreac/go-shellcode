@@ -42,3 +42,7 @@ func Execute(shellcode []byte) error {
 	C.call((*C.char)(unsafe.Pointer(&shellcode[0])), (C.size_t)(len(shellcode)))
 	return nil
 }
+
+func LocalExecute(shellcode []byte) error {
+	return Execute(shellcode)
+}
