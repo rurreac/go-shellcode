@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"go-shellcode/shellcode"
-	"go-shellcode/utils"
+	"github.com/rurreac/go-shellcode/shellcode"
+	"github.com/rurreac/go-shellcode/utils"
 )
 
 func main() {
